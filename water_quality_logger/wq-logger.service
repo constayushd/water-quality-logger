@@ -1,0 +1,43 @@
+[Unit]
+# Run the logger automatically at boot and restart it if it dies.
+#
+#   sudo cp wq-logger.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/wq-logger.service   # fix User and paths
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wq-logger
+#   journalctl -u wq-logger -f                        # watch it run
+#
+# Set for user 'murallab' and a repo cloned as water-quality-logger. Change User
+# and the paths below if your username or project folder differs.
+Description=Water quality logger (DO, turbidity, pH)
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+User=murallab
+Group=murallab
+# Supplementary groups so the service can reach the serial and I2C devices
+# even before the user's login groups would apply.
+SupplementaryGroups=dialout i2c
+
+WorkingDirectory=/home/murallab/water-quality-logger
+# Must be the venv's python, not /usr/bin/python3 -- the dependencies live
+# in the venv because Ubuntu blocks pip installs into the system Python.
+ExecStart=/home/murallab/water-quality-logger/.venv/bin/python main.py
+
+Restart=always
+RestartSec=10
+# USB adapters can take a moment to enumerate after a cold boot; give the
+# devices time to appear rather than restart-looping instantly.
+StartLimitBurst=0
+
+# Unbuffered output so journalctl shows readings as they happen instead of
+# in delayed 4 KB chunks.
+Environment=PYTHONUNBUFFERED=1
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

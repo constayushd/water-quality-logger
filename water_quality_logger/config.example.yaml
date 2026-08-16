@@ -1,0 +1,59 @@
+# Copy this to config.yaml and edit that copy:
+#     cp config.example.yaml config.yaml
+#
+# config.yaml is gitignored on purpose -- it holds device paths specific to
+# one machine, so the Pi and your laptop each keep their own without ever
+# conflicting on a pull. This example file is the one that lives in the repo.
+#
+# Which sensors to poll, and where to put the data.
+#
+# Each entry needs a unique `name` (it prefixes that sensor's CSV columns)
+# and a `type` (a registered driver -- see: python main.py --list-types).
+# Everything else is passed straight to the driver's constructor.
+
+logging:
+  output: data/sensor_log.csv
+  interval_seconds: 2
+  format: wide        # wide = column per channel | long = row per reading
+
+sensors:
+  - name: do
+    type: do_rs485
+    enabled: true
+    # Prefer the stable by-id path over /dev/ttyUSB0 -- the numbering swaps
+    # around on reboot when two adapters are plugged in.
+    # Find yours with: ls -l /dev/serial/by-id/
+    # Run check_hardware.py to see the by-id paths available on this machine.
+    port: /dev/serial/by-id/CHANGE-ME
+    slave_id: 1
+    baudrate: 4800
+    word_swap: false    # flip to true if DO values read as nan or 1e38
+
+  - name: turbidity
+    type: turbidity_rs485
+    enabled: false        # flip to true once this sensor is wired
+    port: /dev/serial/by-id/CHANGE-ME
+    slave_id: 1
+    baudrate: 4800
+    # NOTE: if you put both RS485 sensors on ONE adapter, they must have
+    # different slave_id values. Two devices at address 1 on one bus will
+    # collide. Re-address one sensor first, then point both at the same port.
+
+  - name: ph
+    type: ph_analog
+    enabled: false        # flip to true once the ADS1115 is wired
+    i2c_bus: 1
+    i2c_address: 0x48
+    channel: 0          # ADS1115 AIN0
+    gain: 4.096         # full-scale volts
+    samples: 5          # median of N conversions per reading
+    calibration_file: ph_calibration.json
+
+  # --- adding a sensor later ---------------------------------------------
+  # 1. Write sensors/my_sensor.py with a @register("my_type") class.
+  # 2. Add an entry here. That's it.
+  #
+  # - name: ec
+  #   type: ec_rs485
+  #   port: /dev/ttyUSB2
+  #   slave_id: 1
