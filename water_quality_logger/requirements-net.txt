@@ -1,0 +1,13 @@
+# Extra dependencies for the networking layer only. The logger's own
+# requirements.txt is unchanged; install both:
+#
+#   pip3 install -r requirements.txt -r requirements-net.txt
+#
+# pi_server.py itself needs nothing beyond the standard library, so the sensors
+# keep being read and served even if none of this installs.
+
+# pi_uplink.py and pc_dashboard.py --mqtt
+paho-mqtt>=1.6,<3
+
+# pc_dashboard.py's live plots (PC only; not needed on the Pi)
+# matplotlib>=3.5

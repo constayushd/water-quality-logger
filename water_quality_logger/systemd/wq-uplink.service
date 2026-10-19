@@ -1,0 +1,35 @@
+# Forwards readings to the MQTT broker, starting at boot and restarting if it
+# dies. Install after wq-server.service:
+#
+#   sudo cp wq-uplink.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wq-uplink
+#   journalctl -u wq-uplink -f
+#
+# Edit User=, WorkingDirectory= and --batch to match your setup.
+
+[Unit]
+Description=Water-quality MQTT uplink
+# The uplink reads from the local sensor server, so start it after that.
+After=network-online.target wq-server.service
+Wants=network-online.target
+BindsTo=wq-server.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/water-quality-logger/water_quality_logger
+# --batch 60 means one radio transmission a minute instead of one every few
+# seconds. On battery that difference is worth more than it looks.
+ExecStart=/usr/bin/python3 /home/pi/water-quality-logger/water_quality_logger/pi_uplink.py \
+    --from http://127.0.0.1:8000 --batch 60
+Environment=PYTHONUNBUFFERED=1
+Environment=WQ_UPLINK_STATE=/home/pi/water-quality-logger/water_quality_logger/wq_uplink_state.json
+# Credentials come from wq_mqtt.ini in WorkingDirectory. To keep them out of
+# the filesystem entirely, use an environment file instead:
+# EnvironmentFile=/etc/wq-mqtt.env     (WQ_MQTT_HOST=... WQ_MQTT_PASSWORD=...)
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

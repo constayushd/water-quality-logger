@@ -1,0 +1,18 @@
+# Triggered by wq-ap-watchdog.timer -- see that file for installation.
+#
+# Override the defaults here if you changed them in setup_hotspot.sh, e.g.
+#   Environment=WQ_AP_IP=10.0.0.1
+
+[Unit]
+Description=Bring the water-quality access point back if it has dropped
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wq-ap-watchdog.sh
+Environment=WQ_AP_CONN=wq-ap
+Environment=WQ_AP_IFACE=wlan0
+Environment=WQ_AP_IP=192.168.4.1
+Environment=WQ_PORT=8000
+Environment=WQ_SERVICE=wq-server
+TimeoutStartSec=120

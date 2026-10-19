@@ -1,0 +1,22 @@
+# Checks the access point once a minute. Install both files:
+#
+#   sudo cp wq-ap-watchdog.sh /usr/local/bin/
+#   sudo chmod +x /usr/local/bin/wq-ap-watchdog.sh
+#   sudo cp wq-ap-watchdog.service wq-ap-watchdog.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wq-ap-watchdog.timer
+#
+#   systemctl list-timers wq-ap-watchdog.timer    # when it next runs
+#   journalctl -t wq-ap-watchdog -f               # what it has been doing
+
+[Unit]
+Description=Check the water-quality access point every minute
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=wq-ap-watchdog.service
+
+[Install]
+WantedBy=timers.target

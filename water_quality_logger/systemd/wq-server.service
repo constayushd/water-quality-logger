@@ -1,0 +1,30 @@
+# Starts pi_server.py at boot so readings are available the moment the Pi is up.
+#
+#   sudo cp wq-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wq-server
+#   journalctl -u wq-server -f            # follow the log
+#
+# Edit User=, WorkingDirectory= and the ExecStart flags if your paths differ.
+
+[Unit]
+Description=Water-quality sensor server (LAN)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/water-quality-logger/water_quality_logger
+# Drop --token if you do not want a shared secret; add --simulate to test
+# without hardware. --spool keeps a copy of every reading on the SD card.
+ExecStart=/usr/bin/python3 /home/pi/water-quality-logger/water_quality_logger/pi_server.py \
+    --port 8000 --device-id pi-01 --spool /home/pi/water-quality-logger/water_quality_logger/wq_spool.jsonl
+Environment=PYTHONUNBUFFERED=1
+# Put the token here rather than on the command line, where `ps` would show it:
+# Environment=WQ_TOKEN=change-me
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

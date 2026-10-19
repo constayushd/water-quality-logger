@@ -1,0 +1,39 @@
+# Copy to wq_mqtt.ini on BOTH the Pi and the PC, then:   chmod 600 wq_mqtt.ini
+# It holds a password. Keep it out of git.
+#
+# Get a broker in about ten minutes, free:
+#   1. console.hivemq.cloud -> sign up -> create a free Serverless cluster
+#   2. copy the cluster URL into host= below; the port is 8883
+#   3. under Access Management create TWO credentials, so the Pi cannot read
+#      anything it should not:
+#
+#        wq_pi     publish + subscribe   on   wq/#      <- the Pi uses this
+#        wq_desk   subscribe only        on   wq/#      <- the PC uses this
+#
+# EMQX Serverless and flespi work the same way. Do not use the public
+# test.mosquitto.org for real data: anyone can read it or inject fake readings.
+
+[mqtt]
+host = abc123def456.s1.eu.hivemq.cloud
+port = 8883
+username = wq_pi
+password = put-the-real-password-here
+
+# TLS is on by default and should stay on -- these readings cross the internet.
+tls = true
+
+# Set to true if the network blocks port 8883. MQTT is then tunnelled inside
+# ordinary web traffic, which almost every network allows. HiveMQ serves this
+# on port 8884, so set port = 8884 as well.
+websockets = false
+
+# Topics are <base_topic>/<device_id>/data and .../status
+base_topic = wq
+
+# Only used on the Pi. Give a second Pi a different id and the dashboard picks
+# it up with no changes.
+device_id = pi-tank
+
+# Only for a self-signed broker certificate (a Mosquitto you host yourself).
+# ca_certs = /etc/ssl/certs/my-broker-ca.crt
+# insecure_tls = false

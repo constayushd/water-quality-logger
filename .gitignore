@@ -1,0 +1,47 @@
+# Append these to the .gitignore already in water-quality-logger (or use this
+# file as it stands if the repo has none yet).
+
+# --- SECRETS: the lines that matter most -----------------------------------
+# wq_mqtt.ini holds the broker password. The .example file is what belongs in
+# git; the real one never does.
+wq_mqtt.ini
+config.yaml
+*.ini
+!*.ini.example
+!*.example.yaml
+.env
+*.env
+secrets.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+ph_calibration.json
+
+# --- Data: generated at run time -------------------------------------------
+*.csv
+*.jsonl
+data/
+logs/
+wq_log*.csv
+wq_spool*.jsonl
+wq_uplink_state.json
+*.png
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# --- Editors and OS --------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
