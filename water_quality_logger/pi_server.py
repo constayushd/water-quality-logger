@@ -38,7 +38,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 # Two ways to get the sensors, depending on which repo this is sitting in:
@@ -246,7 +246,7 @@ def log(msg: str) -> None:
 # --------------------------------------------------------------------------
 INDEX_HTML = """<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Water quality - {device}</title>
+<title>Water quality monitoring - {device}</title>
 <style>
  :root{{color-scheme:dark}}
  *{{box-sizing:border-box}}
@@ -288,7 +288,7 @@ INDEX_HTML = """<!doctype html><meta charset="utf-8">
  a{{color:#58a6ff}}
 </style>
 <div class="wrap">
-<h1>Water quality &mdash; {device}</h1>
+<h1>Water quality monitoring &mdash; {device}</h1>
 <div class="sub"><span class="dot" id="dot"></span><span id="sub">connecting&hellip;</span></div>
 
 <div class="grid" id="grid"></div>
@@ -318,12 +318,15 @@ function toast(msg, bad) {{
 }}
 
 function put(metric, value, source, iso) {{
-  let c = cards[metric];
+  // Key by source AND metric: two probes can both report temp_c, and one
+  // must not overwrite the other's tile.
+  const key = source + "/" + metric;
+  let c = cards[key];
   if (!c) {{
     c = document.createElement("div"); c.className = "card";
     c.innerHTML = '<div class="k"></div><div class="v"></div><div class="s"></div>';
     c.querySelector(".k").textContent = metric;
-    document.getElementById("grid").appendChild(c); cards[metric] = c;
+    document.getElementById("grid").appendChild(c); cards[key] = c;
   }}
   c.querySelector(".v").textContent = (Math.round(value * 1000) / 1000).toFixed(2);
   c.querySelector(".s").textContent = source + " \u00b7 " + iso.slice(11, 19) + "Z";
@@ -436,6 +439,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        # Never cache the page. Editing dashboard.html and getting the old one
+        # back from the browser's cache wastes more time than the bytes save.
+        self.send_header("Cache-Control", "no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 
@@ -477,7 +483,7 @@ class Handler(BaseHTTPRequestHandler):
             #   /cmd?action=sample&source=ph
             self._command({k: v[0] for k, v in params.items() if k != "token"})
         elif path == "/":
-            self._html(INDEX_HTML.format(device=self.store.device_id))
+            self._html(self._page())
         else:
             self._json({"ok": False, "error": "not found",
                         "endpoints": ["/health", "/latest", "/readings", "/stream", "/"]}, 404)
@@ -572,6 +578,33 @@ class Handler(BaseHTTPRequestHandler):
         log(f"command: {result}")
         self._json({"ok": True, "result": result,
                     "sensors": [t.status() for t in self.threads.values()]})
+
+    # ---- the page -------------------------------------------------------
+    _page_cache: Tuple[float, str] = (0.0, "")
+
+    def _page(self) -> str:
+        """Serve dashboard.html from disk if it is there, else the built-in page.
+
+        Keeping the dashboard in its own file means it can be edited, diffed and
+        reviewed as HTML rather than as a Python string, and reloaded without
+        restarting the sampling loop.
+        """
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return INDEX_HTML.format(device=self.store.device_id)
+        cached_at, cached = Handler._page_cache
+        if cached and cached_at == mtime:
+            return cached
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            log(f"! could not read dashboard.html ({exc}) - using the built-in page")
+            return INDEX_HTML.format(device=self.store.device_id)
+        Handler._page_cache = (mtime, text)
+        return text
 
     def _send_spool(self) -> None:
         """Hand over the on-disk record, so the data can come home from the
