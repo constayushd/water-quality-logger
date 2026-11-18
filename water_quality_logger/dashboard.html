@@ -1,0 +1,581 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Water quality monitoring</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5C5.5 5 3.5 7.3 3.5 9.6a4.5 4.5 0 0 0 9 0C12.5 7.3 10.5 5 8 1.5z' fill='%2334c3d6'/%3E%3C/svg%3E">
+<!--
+  dashboard.html -- served by pi_server.py at /.
+
+  Self-contained: no CDN, no fonts, no chart library. The sensor node often
+  has no internet and neither does a phone on its hotspot.
+
+  Colour carries IDENTITY here, not status: each measurement keeps one hue
+  across its tile, its sparkline and the trend line, so the eye can follow a
+  parameter between them. The six hues are the validated reference palette in
+  the order blue - aqua - orange - violet - yellow - magenta, which clears the
+  CVD and normal-vision separation gates against both of this page's surfaces.
+  Text stays in ink tokens; only marks are coloured.
+-->
+<style>
+  :root{
+    color-scheme: light;
+    --plane-a:#f9f9f7; --plane-b:#f9f9f7;
+    --surface:#fcfcfb; --surface-2:#f4f4f1;
+    --line:#e3e2dd; --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+    --accent:#0e7f90;                       /* chrome only, never a series */
+    --s1:#2a78d6; --s2:#1baf7a; --s3:#eb6834;
+    --s4:#6250d6; --s5:#eda100; --s6:#e87ba4;
+    --btn:#edf5f9; --btn-line:#cfe2ea;
+    --warn:#d03b3b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --plane-a:#06161f; --plane-b:#0a2029;
+      --surface:#0e2430; --surface-2:#123040;
+      --line:#1d4354; --ink:#e8f4f8; --ink-2:#a8c6d2; --muted:#6f94a3;
+      --accent:#34c3d6;
+      --s1:#3987e5; --s2:#199e70; --s3:#d95926;
+      --s4:#9085e9; --s5:#c98500; --s6:#d55181;
+      --btn:#123040; --btn-line:#1d4354;
+      --warn:#e66767;
+    }
+    :root:not([data-theme="light"]) body{
+      background-image:
+        radial-gradient(1100px 520px at 18% -8%,
+          color-mix(in srgb,var(--accent) 16%, transparent), transparent 70%),
+        linear-gradient(180deg, var(--plane-a) 0%, var(--plane-b) 55%);
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; color:var(--ink);
+    font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+    /* Light mode stays flat and neutral; the ocean gradient is dark-mode only.
+       It spans the whole document rather than the viewport: background-
+       attachment:fixed leaves a long page flat below the fold, and janks on
+       several mobile browsers. */
+    background-color: var(--plane-b);
+    background-repeat: no-repeat;
+    padding:20px 16px calc(36px + env(safe-area-inset-bottom,0px));
+  }
+  .wrap{max-width:1020px;margin:0 auto}
+
+  header{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+  .drop{width:30px;height:30px;flex:none;margin-top:1px}
+  h1{font-size:21px;margin:0;letter-spacing:-.015em;line-height:1.2}
+  .sub{color:var(--ink-2);font-size:13px;display:flex;align-items:center;gap:7px;margin-top:3px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.on{background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+  .dot.off{background:var(--warn)}
+  .wave{display:block;width:100%;height:16px;margin:14px 0 2px;opacity:.75}
+
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;
+     color:var(--accent);margin:26px 0 10px;font-weight:700}
+
+  .strip{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:baseline;
+    padding:13px 16px;border-radius:12px;border:1px solid var(--line);
+    background:linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
+    margin-top:12px}
+  .strip b{font-size:15px;font-weight:600}
+  .strip span{color:var(--ink-2);font-size:13px}
+  .strip.stale{border-color:var(--warn)}
+  .strip.stale b{color:var(--warn)}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:11px}
+  .tile{position:relative;background:var(--surface);border:1px solid var(--line);
+        border-radius:12px;padding:13px 14px 10px 16px;overflow:hidden}
+  .tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
+  .tile::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(160deg, color-mix(in srgb,var(--c) 11%,transparent), transparent 62%)}
+  .tile>*{position:relative;z-index:1}
+  .tile .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .tile .v{font-size:28px;font-variant-numeric:tabular-nums;letter-spacing:-.025em;
+           line-height:1.12;margin-top:4px}
+  .tile .v .u{font-size:13px;color:var(--ink-2);margin-left:3px;letter-spacing:0}
+  .spark{display:block;width:100%;height:32px;margin-top:9px}
+  .tile .n{color:var(--muted);font-size:11px;margin-top:7px;min-height:1.2em}
+
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  select,button,input[type=number]{
+    font:inherit;font-size:14px;padding:9px 12px;min-height:40px;border-radius:9px;
+    border:1px solid var(--btn-line);background:var(--btn);color:var(--ink);cursor:pointer}
+  input[type=number]{width:76px;cursor:text}
+  button.p{background:var(--accent);border-color:var(--accent);color:#04222a;font-weight:600}
+  button:active{filter:brightness(1.12)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  #chart{display:block;width:100%;height:240px;touch-action:none}
+  .axis{fill:var(--muted);font-size:10px}
+  .grid{stroke:var(--line);stroke-width:1}
+  .cursor{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
+  #tip{position:absolute;pointer-events:none;background:var(--surface);
+       border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;
+       box-shadow:0 3px 14px #0000002e;opacity:0;transition:opacity .1s;white-space:nowrap}
+  #tip b{font-variant-numeric:tabular-nums}
+
+  .row{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+       padding:12px;margin-bottom:9px;display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+  .row .name{font-weight:600;flex:1 1 112px;min-width:112px}
+  .row .meta{color:var(--muted);font-size:12px;flex:1 1 100%;order:9}
+  .row.paused{opacity:.55}
+  .lbl{color:var(--ink-2);font-size:13px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{text-align:left;padding:5px 9px;border-bottom:1px solid var(--line);
+        font-variant-numeric:tabular-nums}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .props{display:grid;grid-template-columns:repeat(auto-fill,minmax(152px,1fr));gap:9px}
+  .prop{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+  .prop .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .prop .v{font-size:15px;margin-top:3px;font-variant-numeric:tabular-nums}
+  .foot{color:var(--muted);font-size:11.5px;margin-top:24px;line-height:1.6}
+  [hidden]{display:none!important}
+</style>
+
+<div class="wrap">
+  <header>
+    <svg class="drop" viewBox="0 0 24 24" aria-hidden="true">
+      <defs><linearGradient id="dg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--s1)"/>
+      </linearGradient></defs>
+      <path d="M12 2C8 7.2 5 11 5 14.3a7 7 0 0 0 14 0C19 11 16 7.2 12 2z" fill="url(#dg)"/>
+    </svg>
+    <div>
+      <h1 id="title">Water quality monitoring</h1>
+      <div class="sub"><span class="dot" id="dot"></span><span id="conn">connecting…</span></div>
+    </div>
+  </header>
+
+  <svg class="wave" viewBox="0 0 1200 20" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0 13 C 100 3, 200 3, 300 13 S 500 23, 600 13 S 800 3, 900 13 S 1100 23, 1200 13"
+          fill="none" stroke="var(--accent)" stroke-width="2" opacity=".5"/>
+    <path d="M0 17 C 120 9, 240 9, 360 17 S 600 25, 720 17 S 960 9, 1080 17 S 1200 21, 1200 17"
+          fill="none" stroke="var(--s1)" stroke-width="1.5" opacity=".35"/>
+  </svg>
+
+  <div class="strip" id="strip">
+    <b id="sTitle">Waiting for readings</b>
+    <span id="sProbes"></span><span id="sCount"></span><span id="sAge"></span>
+  </div>
+
+  <h2>Current readings</h2>
+  <div class="kpis" id="kpis"></div>
+
+  <h2>Trend</h2>
+  <div class="bar">
+    <select id="metric"></select>
+    <select id="window">
+      <option value="10">last 10 min</option>
+      <option value="30" selected>last 30 min</option>
+      <option value="60">last 60 min</option>
+      <option value="0">everything held</option>
+    </select>
+    <button id="tableBtn">Show values</button>
+  </div>
+  <div class="card"><svg id="chart" preserveAspectRatio="none"></svg></div>
+  <div class="card scroll" id="tableWrap" hidden style="margin-top:9px">
+    <table id="table"><thead><tr><th>Time</th><th>Value</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <h2>Device</h2>
+  <div class="props" id="props"></div>
+
+  <h2>Controls</h2>
+  <div class="bar">
+    <button class="p" data-all="sample">Sample all now</button>
+    <button data-all="pause">Pause all</button>
+    <button data-all="resume">Resume all</button>
+    <button id="dl">Download log</button>
+  </div>
+  <div id="sensors"></div>
+
+  <p class="foot" id="foot">
+    Readings are shown as measured, with no pass/fail thresholds applied.
+    Each parameter keeps one colour across its tile, its sparkline and the trend
+    chart. Dissolved oxygen near saturation indicates well-aerated water; a
+    sustained fall suggests stagnation.
+  </p>
+</div>
+<div id="tip"></div>
+
+<script>
+"use strict";
+const q = new URLSearchParams(location.search);
+const token = q.get("token");
+const tok = token ? "?token=" + encodeURIComponent(token) : "";
+const api = p => p + tok;
+
+/* ------------------------------------------------------------------ *
+ * What each measurement is. Display order is the order of this object,
+ * and pH sits last by request.
+ * ------------------------------------------------------------------ */
+const SPEC = {
+  "do/mg_l":           {label:"Dissolved oxygen", unit:"mg/L", dp:2, min:0,
+                        note:"oxygen available in the water"},
+  "do/saturation_pct": {label:"DO saturation", unit:"%", dp:1, min:0,
+                        note:"near 100% is well-aerated water"},
+  "do/temp_c":         {label:"Water temp (DO)", unit:"°C", dp:2,
+                        note:"measured at the DO probe"},
+  "turbidity/ntu":     {label:"Turbidity", unit:"NTU", dp:2, min:0,
+                        note:"suspended particles in the water"},
+  "turbidity/temp_c":  {label:"Water temp (turb.)", unit:"°C", dp:2,
+                        note:"measured at the turbidity probe"},
+  "ph/ph":             {label:"pH", unit:"", dp:2, note:"acidity of the water"},
+  "ph/volts":          {label:"pH sensor", unit:"V", dp:3, min:0,
+                        note:"uncalibrated — run calibrate_ph.py"},
+};
+const HUES = ["var(--s1)","var(--s2)","var(--s3)","var(--s4)","var(--s5)","var(--s6)"];
+const ORDER = Object.keys(SPEC);
+
+const spec = k => SPEC[k] || {label:k.split("/")[1], unit:"", dp:2, note:""};
+function rank(k){
+  const i = ORDER.indexOf(k);
+  if (i >= 0) return i;
+  return k.startsWith("ph/") ? 95 : 50;      // anything unknown sits before pH
+}
+/* One hue per measurement, fixed by position so a colour never moves when a
+   probe drops out. pH shares the last slot whether it reports pH or volts. */
+const hueOf = k => HUES[Math.min(rank(k) === 95 ? 5 : rank(k), HUES.length - 1)];
+
+/* Some firmware reports saturation as a fraction (0.94) rather than a percent. */
+let satScaled = false;
+function adjust(key, v){
+  if (key === "do/saturation_pct" && v > 0 && v <= 1.5){ satScaled = true; return v*100; }
+  return v;
+}
+
+/* ------------------------------------------------------------------ */
+const CAP = 4000;
+const series = new Map();
+const latest = new Map();
+
+function ingest(r){
+  if (!r || !r.metrics) return;
+  const t = (r.ts || Date.now()/1000) * 1000;
+  for (const [m, raw] of Object.entries(r.metrics)){
+    const key = r.source + "/" + m;
+    const v = adjust(key, Number(raw));
+    if (!Number.isFinite(v)) continue;
+    let arr = series.get(key);
+    if (!arr){ arr = []; series.set(key, arr); }
+    arr.push({t, v});
+    if (arr.length > CAP) arr.splice(0, arr.length - CAP);
+    latest.set(key, {v, t, source:r.source});
+  }
+}
+const fmt = (v, dp) => v.toFixed(dp);
+const clock = t => new Date(t).toTimeString().slice(0,8);
+function ago(t){
+  const s = (Date.now() - t)/1000;
+  if (s < 90) return Math.round(s) + "s ago";
+  if (s < 5400) return Math.round(s/60) + " min ago";
+  return (s/3600).toFixed(1) + " h ago";
+}
+const sortedKeys = () => [...series.keys()].sort((a,b) => rank(a) - rank(b));
+
+/* ------------------------------------------------------------------ *
+ * Tiles
+ * ------------------------------------------------------------------ */
+function sparkPath(arr, w, h){
+  if (arr.length < 2) return "";
+  const pts = arr.slice(-80), xs = pts.map(p=>p.t), ys = pts.map(p=>p.v);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  if (y1 - y0 < 1e-9){ y0 -= .5; y1 += .5; }
+  const sx = t => x1===x0 ? w : ((t-x0)/(x1-x0))*(w-2)+1;
+  const sy = v => h - 2 - ((v-y0)/(y1-y0))*(h-4);
+  return pts.map((p,i)=>(i?"L":"M")+sx(p.t).toFixed(1)+" "+sy(p.v).toFixed(1)).join(" ");
+}
+
+function renderTiles(){
+  const host = document.getElementById("kpis");
+  host.innerHTML = "";
+  for (const key of sortedKeys()){
+    const s = spec(key), cur = latest.get(key);
+    if (!cur) continue;
+    const c = hueOf(key);
+    const el = document.createElement("div");
+    el.className = "tile"; el.style.setProperty("--c", c);
+    el.innerHTML =
+      '<div class="k"></div>' +
+      '<div class="v"><span class="num"></span><span class="u"></span></div>' +
+      '<svg class="spark" viewBox="0 0 160 32" preserveAspectRatio="none">' +
+        '<path fill="none" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '</svg>' +
+      '<div class="n"></div>';
+    el.querySelector(".k").textContent = s.label;
+    el.querySelector(".num").textContent = fmt(cur.v, s.dp);
+    el.querySelector(".u").textContent = s.unit;
+    const path = el.querySelector("path");
+    path.setAttribute("stroke", c);
+    path.setAttribute("d", sparkPath(series.get(key), 160, 32));
+    el.querySelector(".n").textContent = ago(cur.t) + " · " + s.note;
+    host.appendChild(el);
+  }
+  strip();
+}
+
+function strip(){
+  const box = document.getElementById("strip");
+  const probes = new Set([...latest.values()].map(x => x.source));
+  if (!latest.size){ box.className = "strip"; return; }
+  const newest = Math.max(...[...latest.values()].map(x => x.t));
+  const stale = Date.now() - newest > 120000;
+  box.className = "strip" + (stale ? " stale" : "");
+  document.getElementById("sTitle").textContent =
+    stale ? "No recent readings" : "Monitoring " + probes.size +
+    (probes.size === 1 ? " probe" : " probes");
+  document.getElementById("sProbes").textContent = [...probes].join(" · ");
+  document.getElementById("sCount").textContent = latest.size + " measurements";
+  document.getElementById("sAge").textContent = "last " + ago(newest);
+}
+
+/* ------------------------------------------------------------------ *
+ * Trend
+ * ------------------------------------------------------------------ */
+const svg = document.getElementById("chart");
+const tip = document.getElementById("tip");
+const NS = "http://www.w3.org/2000/svg";
+let plotted = [], px = null, hovering = false;
+const mk = (n,a) => { const e = document.createElementNS(NS,n);
+  for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+function drawChart(){
+  const key = document.getElementById("metric").value;
+  const mins = +document.getElementById("window").value;
+  const s = spec(key), c = hueOf(key);
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 240;
+  const L = 48, R = 12, T = 12, B = 24;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+
+  let data = series.get(key) || [];
+  if (mins){ const cut = Date.now() - mins*60000; data = data.filter(p => p.t >= cut); }
+  plotted = data;
+  if (data.length < 2){
+    const t = mk("text",{x:W/2, y:H/2, "text-anchor":"middle", class:"axis"});
+    t.textContent = "not enough data yet"; svg.appendChild(t); return;
+  }
+
+  const xs = data.map(p=>p.t), ys = data.map(p=>p.v);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  const pad = (hi-lo)*0.12 || 0.5; lo -= pad; hi += pad;
+  if (s.min != null) lo = Math.max(s.min, lo);
+  const sx = t => L + (x1===x0 ? 0 : (t-x0)/(x1-x0)) * (W-L-R);
+  const sy = v => T + (1 - (v-lo)/(hi-lo)) * (H-T-B);
+
+  // a soft fill under the line, in the series hue -- water, not decoration
+  const gid = "g" + key.replace(/[^a-z]/gi,"");
+  const defs = mk("defs"); const lg = mk("linearGradient",{id:gid,x1:0,y1:0,x2:0,y2:1});
+  lg.appendChild(mk("stop",{offset:"0","stop-color":c,"stop-opacity":".28"}));
+  lg.appendChild(mk("stop",{offset:"1","stop-color":c,"stop-opacity":"0"}));
+  defs.appendChild(lg); svg.appendChild(defs);
+
+  for (let i=0;i<=4;i++){
+    const v = lo + (hi-lo)*i/4, y = sy(v);
+    svg.appendChild(mk("line",{x1:L,y1:y,x2:W-R,y2:y,class:"grid"}));
+    const t = mk("text",{x:L-7,y:y+3.5,"text-anchor":"end",class:"axis"});
+    t.textContent = v.toFixed(s.dp <= 1 ? 1 : 2); svg.appendChild(t);
+  }
+  for (const [t0,anchor] of [[x0,"start"],[x1,"end"]]){
+    const t = mk("text",{x:sx(t0),y:H-7,"text-anchor":anchor,class:"axis"});
+    t.textContent = clock(t0); svg.appendChild(t);
+  }
+
+  const line = data.map((p,i)=>(i?"L":"M")+sx(p.t).toFixed(1)+" "+sy(p.v).toFixed(1)).join(" ");
+  svg.appendChild(mk("path",{d:line+` L ${sx(x1).toFixed(1)} ${sy(lo)} L ${sx(x0).toFixed(1)} ${sy(lo)} Z`,
+                             fill:`url(#${gid})`, stroke:"none"}));
+  svg.appendChild(mk("path",{d:line, fill:"none", stroke:c, "stroke-width":2,
+                             "stroke-linejoin":"round", "stroke-linecap":"round"}));
+
+  px = {sx, sy, L, R, W, H, T, B, s, c};
+  renderTable(data, s);
+}
+
+svg.addEventListener("pointerenter", () => { hovering = true; });
+svg.addEventListener("pointermove", e => {
+  if (!px || plotted.length < 2) return;
+  const r = svg.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (px.W / r.width);
+  let best = plotted[0], bd = Infinity;
+  for (const p of plotted){ const d = Math.abs(px.sx(p.t)-x); if (d < bd){ bd = d; best = p; } }
+  svg.querySelectorAll(".cursor,.cdot").forEach(n => n.remove());
+  const cx = px.sx(best.t), cy = px.sy(best.v);
+  svg.appendChild(mk("line",{x1:cx,y1:px.T,x2:cx,y2:px.H-px.B,class:"cursor"}));
+  svg.appendChild(mk("circle",{cx,cy,r:4.5,class:"cdot",fill:px.c,
+                               stroke:"var(--surface)","stroke-width":2}));
+  tip.innerHTML = "<b>" + fmt(best.v, px.s.dp) + "</b> " + px.s.unit + "<br>" + clock(best.t);
+  tip.style.opacity = 1;
+  tip.style.left = Math.min(window.innerWidth-112, r.left + cx*(r.width/px.W) + 12) + "px";
+  tip.style.top  = (window.scrollY + r.top + cy*(r.height/px.H) - 38) + "px";
+});
+svg.addEventListener("pointerleave", () => {
+  hovering = false;
+  tip.style.opacity = 0;
+  svg.querySelectorAll(".cursor,.cdot").forEach(n => n.remove());
+  if (dirty) { dirty = false; drawChart(); }   // catch up on what we held back
+});
+
+function renderTable(data, s){
+  const tb = document.querySelector("#table tbody");
+  tb.innerHTML = "";
+  for (const p of data.slice(-40).reverse()){
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>"+clock(p.t)+"</td><td>"+fmt(p.v,s.dp)+" "+s.unit+"</td>";
+    tb.appendChild(tr);
+  }
+}
+document.getElementById("tableBtn").onclick = e => {
+  const w = document.getElementById("tableWrap");
+  w.hidden = !w.hidden;
+  e.target.textContent = w.hidden ? "Show values" : "Hide values";
+};
+
+function syncMetricPicker(){
+  const sel = document.getElementById("metric");
+  const have = new Set([...sel.options].map(o => o.value));
+  const want = sortedKeys();
+  if (want.every(k => have.has(k)) && have.size === want.length) return;
+  const chosen = sel.value;
+  sel.innerHTML = "";
+  for (const key of want){
+    const o = document.createElement("option");
+    o.value = key;
+    o.textContent = spec(key).label + (spec(key).unit ? " (" + spec(key).unit + ")" : "");
+    sel.appendChild(o);
+  }
+  sel.value = (chosen && want.includes(chosen)) ? chosen : want[0];
+}
+document.getElementById("metric").onchange = drawChart;
+document.getElementById("window").onchange = drawChart;
+addEventListener("resize", drawChart);
+
+/* ------------------------------------------------------------------ *
+ * Device + controls
+ * ------------------------------------------------------------------ */
+function renderProps(h, sensors){
+  const props = document.getElementById("props");
+  const up = h.uptime_s || 0;
+  const errs = Object.keys(h.errors || {}).length;
+  const items = [
+    ["Sensor node", h.device_id || "—"],
+    ["Uptime", up > 3600 ? (up/3600).toFixed(1)+" h" : Math.round(up/60)+" min"],
+    ["Readings", (h.seq ?? 0).toLocaleString()],
+    ["Buffered", (h.buffered ?? 0)+" / "+(h.capacity ?? 0)],
+    ["Probes", (sensors || []).length],
+    ["Errors", errs || "none"],
+  ];
+  props.innerHTML = "";
+  for (const [k,v] of items){
+    const d = document.createElement("div");
+    d.className = "prop";
+    d.innerHTML = '<div class="k"></div><div class="v"></div>';
+    d.querySelector(".k").textContent = k;
+    d.querySelector(".v").textContent = v;
+    if (k === "Errors" && errs) d.querySelector(".v").style.color = "var(--warn)";
+    props.appendChild(d);
+  }
+}
+
+function toast(msg){
+  tip.textContent = msg; tip.style.opacity = 1;
+  tip.style.left = "50%"; tip.style.top = (window.scrollY + 14) + "px";
+  tip.style.transform = "translateX(-50%)";
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => { tip.style.opacity = 0; tip.style.transform = ""; }, 2400);
+}
+async function cmd(body){
+  try{
+    const r = await fetch(api("/cmd"), {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    const d = await r.json();
+    if (d.ok){ toast(d.result); renderSensors(d.sensors); } else toast(d.error || "failed");
+  }catch(e){ toast("no reply from the sensor node"); }
+}
+document.querySelectorAll("[data-all]").forEach(b =>
+  b.onclick = () => cmd({action:b.dataset.all, source:"all"}));
+document.getElementById("dl").onclick = () => location.href = api("/spool");
+
+function renderSensors(list){
+  const host = document.getElementById("sensors");
+  host.innerHTML = "";
+  for (const s of list || []){
+    const d = document.createElement("div");
+    d.className = "row" + (s.paused ? " paused" : "");
+    d.innerHTML =
+      '<div class="name"></div>' +
+      '<button data-a="sample">Sample</button>' +
+      '<button data-a="toggle"></button>' +
+      '<span class="lbl">every</span>' +
+      '<input type="number" min="0.2" step="0.5">' +
+      '<span class="lbl">s</span>' +
+      '<button data-a="interval">Set</button>' +
+      '<div class="meta"></div>';
+    d.querySelector(".name").textContent = s.name;
+    d.querySelector("input").value = s.interval_s;
+    d.querySelector(".meta").textContent = s.age_s == null ? "no reading yet"
+      : s.age_s.toFixed(0)+"s ago · "+s.reads+" reads"
+        + (s.failures ? " · "+s.failures+" failed" : "");
+    const tg = d.querySelector('[data-a=toggle]');
+    tg.textContent = s.paused ? "Resume" : "Pause";
+    d.querySelector('[data-a=sample]').onclick = () => cmd({action:"sample", source:s.name});
+    tg.onclick = () => cmd({action: s.paused ? "resume":"pause", source:s.name});
+    d.querySelector('[data-a=interval]').onclick = () =>
+      cmd({action:"interval", source:s.name, seconds:d.querySelector("input").value});
+    host.appendChild(d);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+let deviceId = "";
+async function refresh(){
+  try{
+    const [h, s] = await Promise.all([
+      fetch(api("/health")).then(r=>r.json()),
+      fetch(api("/sensors")).then(r=>r.json()),
+    ]);
+    if (h.device_id && h.device_id !== deviceId){
+      deviceId = h.device_id;
+      document.getElementById("title").textContent = "Water quality monitoring — " + deviceId;
+      document.title = "Water quality monitoring — " + deviceId;
+    }
+    renderProps(h, s.sensors);
+    renderSensors(s.sensors);
+    document.getElementById("dl").hidden = !s.spool;
+    if (satScaled){
+      const f = document.getElementById("foot");
+      if (!f.dataset.sat){ f.dataset.sat = "1";
+        f.textContent += " DO saturation is shown ×100: the transmitter reports it as a fraction."; }
+    }
+  }catch(e){}
+}
+async function seed(){
+  try{
+    const d = await fetch(api("/readings") + (tok ? "&" : "?") + "limit=1800").then(r=>r.json());
+    (d.readings || []).forEach(ingest);
+    syncMetricPicker(); renderTiles(); drawChart();
+  }catch(e){}
+}
+
+const es = new EventSource(api("/stream"));
+es.onopen = () => {
+  document.getElementById("conn").textContent = "live";
+  document.getElementById("dot").className = "dot on";
+};
+es.onerror = () => {
+  document.getElementById("conn").textContent = "disconnected — retrying";
+  document.getElementById("dot").className = "dot off";
+};
+let dirty = false;
+es.onmessage = e => { try{ ingest(JSON.parse(e.data)); dirty = true; }catch(err){} };
+setInterval(() => {
+  if (!dirty){ strip(); return; }
+  syncMetricPicker(); renderTiles();
+  // Hold the chart still while someone is reading a value off it -- a redraw
+  // would wipe the crosshair out from under the pointer.
+  if (!hovering){ dirty = false; drawChart(); }
+}, 1000);
+
+seed(); refresh(); setInterval(refresh, 5000);
+</script>
